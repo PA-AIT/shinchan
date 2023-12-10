@@ -17,6 +17,7 @@ st.title("Automate2PDF: Simplified Data Transfer")
 user = st.text_input("Enter your email address")
 password = st.text_input("Enter your email password", type="password")
 pdf_email_address = st.text_input("Enter the email address from which to extract PDFs")
+selected_date = st.text_input("Enter the date (YYYY-MM-DD) to filter emails")
 
 # Function to extract text from PDF using PyMuPDF
 def extract_text_from_pdf(pdf_bytes):
@@ -34,41 +35,70 @@ def summarize_text_t5(text):
     summary_ids = model.generate(inputs, max_length=150, min_length=30, length_penalty=2.0, num_beams=4, early_stopping=True)
     summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
     return summary
-# ... (Previous code remains the same)
 
-# IMAP client setup for fetching emails
+# Convert date format for IMAP search
+try:
+    imap_date_format = pd.to_datetime(selected_date).strftime("%d-%b-%Y").upper()
+except Exception as e:
+    st.error(f"Error converting date format: {str(e)}")
+    st.stop()
+
 if st.button("Fetch and Display PDF Summaries"):
     try:
-        # IMAP connection setup
-        mail = imaplib.IMAP4_SSL('imap.gmail.com')
-        mail.login(user, password)
-        mail.select("inbox")
+        # URL for IMAP connection
+        imap_url = 'imap.gmail.com'
 
-        # Search for emails based on the specified date
-        result, data = mail.search(None, f'(SINCE {selected_date})')
+        # Connection with GMAIL using SSL
+        with imaplib.IMAP4_SSL(imap_url) as my_mail:
+            # Log in using user and password
+            my_mail.login(user, password)
 
-        # Iterate through the fetched email IDs
-        for num in data[0].split():
-            result, data = mail.fetch(num, "(RFC822)")
-            raw_email = data[0][1]
-            msg = email.message_from_bytes(raw_email)
+            # Select the Inbox to fetch messages
+            my_mail.select('inbox')
 
-            # Process the email content
-            email_date = msg["Date"]
-            email_subject = msg["Subject"]
+            # Define the key and value for email search
+            key = 'SINCE'
+            value = imap_date_format  # Use the user-specified date to search
+            _, data = my_mail.search(None, key, value)
 
-            for part in msg.walk():
-                if part.get_content_type() == "application/pdf":
-                    # Extract text from PDF using PyMuPDF
-                    pdf_bytes = part.get_payload(decode=True)
-                    pdf_text = extract_text_from_pdf(pdf_bytes)
+            mail_id_list = data[0].split()
 
-                    # Summarize the PDF content using T5-based summarizer
-                    summary = summarize_text_t5(pdf_text)
+            info_list = []
 
-                    # Display the summarized content
-                    st.subheader(f"Received Date: {email_date}, Subject: {email_subject}")
-                    st.write(summary)
+            # Iterate through messages
+            for num in mail_id_list:
+                typ, data = my_mail.fetch(num, '(RFC822)')
+                msg = email.message_from_bytes(data[0][1])
+
+                for part in msg.walk():
+                    if part.get_content_type() == 'application/pdf':
+                        # Extract email date
+                        email_date = msg["Date"]
+
+                        # Extract text from PDF using PyMuPDF
+                        pdf_bytes = part.get_payload(decode=True)
+                        pdf_text = extract_text_from_pdf(pdf_bytes)
+
+                        # Summarize the PDF content using T5 model
+                        summary = summarize_text_t5(pdf_text)
+
+                        info = {"Summarized Content": summary, "Received Date": email_date}
+                        info_list.append(info)
+
+            # Display the summarized content
+            for info in info_list:
+                st.subheader(f"Received Date: {info['Received Date']}")
+                st.write(info["Summarized Content"])
+
+            # Download button
+            if st.button("Download Summaries as Text File"):
+                summary_text = "\n\n".join(f"Received Date: {info['Received Date']}\n{info['Summarized Content']}" for info in info_list)
+                st.download_button(
+                    label="Download Summaries",
+                    data=summary_text,
+                    key="download_summaries_txt",
+                    file_name="summaries.txt",
+                )
 
     except Exception as e:
         st.error(f"An error occurred during IMAP connection: {str(e)}")
