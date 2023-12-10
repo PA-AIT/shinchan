@@ -6,26 +6,38 @@ from io import BytesIO
 import fitz  # PyMuPDF
 import streamlit as st
 from transformers import T5ForConditionalGeneration, T5Tokenizer
-import sentencepiece  # Add this import
+import sentencepiece
 
 # Download NLTK resources
 nltk.download('punkt')
 
 # Streamlit app title
 st.title("Automate2PDF: Simplified Data Transfer")
+
 # Create input fields for the user, password, and email address
 user = st.text_input("Enter your email address")
 password = st.text_input("Enter your email password", type="password")
 pdf_email_address = st.text_input("Enter the email address from which to extract PDFs")
 selected_date = st.text_input("Enter the date (YYYY-MM-DD) to filter emails")
 
-# Function to extract text from PDF using PyMuPDF
-def extract_text_from_pdf(pdf_bytes):
+# Function to extract chapters from PDF using PyMuPDF
+def extract_chapters_from_pdf(pdf_bytes):
     pdf_document = fitz.open(stream=pdf_bytes, filetype="pdf")
-    text = ""
+    chapters = []
+
     for page_num in range(pdf_document.page_count):
-        text += pdf_document[page_num].get_text()
-    return text
+        page_text = pdf_document[page_num].get_text()
+
+        # Assuming chapters are separated by a keyword, adjust this based on your document structure
+        chapter_start_keywords = ["Chapter", "CHAPTER", "Section", "SECTION"]
+        
+        for start_keyword in chapter_start_keywords:
+            if start_keyword in page_text:
+                # Split the text at the chapter start keyword
+                chapter_text = page_text.split(start_keyword, 1)[-1]
+                chapters.append(chapter_text)
+
+    return chapters
 
 # Function to summarize text using T5 model
 def summarize_text_t5(text):
@@ -75,24 +87,25 @@ if st.button("Fetch and Display PDF Summaries"):
                         # Extract email date
                         email_date = msg["Date"]
 
-                        # Extract text from PDF using PyMuPDF
+                        # Extract chapters from PDF using PyMuPDF
                         pdf_bytes = part.get_payload(decode=True)
-                        pdf_text = extract_text_from_pdf(pdf_bytes)
+                        chapters = extract_chapters_from_pdf(pdf_bytes)
 
-                        # Summarize the PDF content using T5 model
-                        summary = summarize_text_t5(pdf_text)
+                        for chapter_num, chapter_text in enumerate(chapters, start=1):
+                            # Summarize each chapter using T5 model
+                            summary = summarize_text_t5(chapter_text)
 
-                        info = {"Summarized Content": summary, "Received Date": email_date}
-                        info_list.append(info)
+                            info = {"Summarized Content": summary, "Received Date": email_date, "Chapter": chapter_num}
+                            info_list.append(info)
 
             # Display the summarized content
             for info in info_list:
-                st.subheader(f"Received Date: {info['Received Date']}")
+                st.subheader(f"Chapter {info['Chapter']} - Received Date: {info['Received Date']}")
                 st.write(info["Summarized Content"])
 
             # Download button
             if st.button("Download Summaries as Text File"):
-                summary_text = "\n\n".join(f"Received Date: {info['Received Date']}\n{info['Summarized Content']}" for info in info_list)
+                summary_text = "\n\n".join(f"Chapter {info['Chapter']} - Received Date: {info['Received Date']}\n{info['Summarized Content']}" for info in info_list)
                 st.download_button(
                     label="Download Summaries",
                     data=summary_text,
