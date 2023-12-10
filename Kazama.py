@@ -6,13 +6,13 @@ from io import BytesIO
 import fitz  # PyMuPDF
 import streamlit as st
 from transformers import T5ForConditionalGeneration, T5Tokenizer
+import sentencepiece  # Add this import
 
 # Download NLTK resources
 nltk.download('punkt')
 
 # Streamlit app title
 st.title("Automate2PDF: Simplified Data Transfer")
-
 # Create input fields for the user, password, and email address
 user = st.text_input("Enter your email address")
 password = st.text_input("Enter your email password", type="password")
